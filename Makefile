@@ -42,6 +42,7 @@ FREERTOS_SRC = \
 
 APP_SRC =      \
                main.c \
+               xplained.c \
 
 
 SRC = $(APP_SRC) $(FREERTOS_SRC)
@@ -163,7 +164,8 @@ TARGET_LSS = $(OBJ_PATH)/$(APP).lss
 
 
 # program into the flash
-AVRDUDE_FLASH = -U flash:w:$(TARGET_HEX)
+#AVRDUDE_FLASH = -U flash:w:$(TARGET_HEX)
+AVRDUDE_FLASH = -U application:w:$(TARGET_HEX)
 #AVRDUDE_EEPROM = -U eeprom:w:$(TARGET_EEP)
 
 INSTALL = $(AVRDUDE) -p $(MCU) -c $(ISP) $(ISP_FLAGS) \
