@@ -76,6 +76,12 @@ Changes from V2.6.0
 	  WinAVR.
 */
 
+/*
+    Additional changes implemented to use on ATXmega128B1 uC instead of AVR
+
+    © 2016 KCs
+*/
+
 #include <stdlib.h>
 #include <avr/interrupt.h>
 
@@ -88,11 +94,6 @@ Changes from V2.6.0
 
 /* Start tasks with interrupts enables. */
 #define portFLAGS_INT_ENABLED					( ( StackType_t ) 0x80 )
-
-/* Hardware constants for timer 1. */
-#define portPRESCALE_64							( ( uint8_t ) 0x05 )
-#define portCLOCK_PRESCALER						( ( uint32_t ) 64 )
-#define portCOMPARE_MATCH_A_INTERRUPT_ENABLE	( ( uint8_t ) 0x10 )
 
 /*-----------------------------------------------------------*/
 
@@ -158,9 +159,9 @@ extern volatile TCB_t * volatile pxCurrentTCB;
 					"push	r31						\n\t"	\
 					"lds	r26, pxCurrentTCB		\n\t"	\
 					"lds	r27, pxCurrentTCB + 1	\n\t"	\
-					"in		r0, 0x3d				\n\t"	\
+					"in		r0, __SP_L__			\n\t"	\
 					"st		x+, r0					\n\t"	\
-					"in		r0, 0x3e				\n\t"	\
+					"in		r0, __SP_H__			\n\t"	\
 					"st		x+, r0					\n\t"	\
 				);
 
@@ -250,6 +251,14 @@ uint16_t usAddress;
 
 	usAddress >>= 8;
 	*pxTopOfStack = ( StackType_t ) ( usAddress & ( uint16_t ) 0x00ff );
+	pxTopOfStack--;
+
+	/* the ATXmega128B1 has a 8kb bootloader above the 128k flash memory
+	so it has a 3 byte PC contrary to what the name suggests
+	The function pointers do not take this into account as normal function
+	calls cannot access the area above 128k anyway, but for simple case
+	the task code will be in the normal area anyway */
+	*pxTopOfStack = ( StackType_t ) 0;
 	pxTopOfStack--;
 
 	/* Next simulate the stack as if after a call to portSAVE_CONTEXT().
@@ -378,26 +387,6 @@ void vPortYield( void )
 /*-----------------------------------------------------------*/
 
 /*
- * Context switch function used by the tick.  This must be identical to
- * vPortYield() from the call to vTaskSwitchContext() onwards.  The only
- * difference from vPortYield() is the tick count is incremented as the
- * call comes from the tick ISR.
- */
-void vPortYieldFromTick( void ) __attribute__ ( ( naked ) );
-void vPortYieldFromTick( void )
-{
-	portSAVE_CONTEXT();
-	if( xTaskIncrementTick() != pdFALSE )
-	{
-		vTaskSwitchContext();
-	}
-	portRESTORE_CONTEXT();
-
-	asm volatile ( "ret" );
-}
-/*-----------------------------------------------------------*/
-
-/*
  * Setup TimerCounter type 1 overflow to generate the tick
  */
 static void prvSetupTimerInterrupt( void )
@@ -446,13 +435,18 @@ static void prvSetupTimerInterrupt( void )
 
 	/*
 	 * Tick ISR for preemptive scheduler.  We can use a naked attribute as
-	 * the context is saved at the start of vPortYieldFromTick().  The tick
-	 * count is incremented after the context is saved.
+	 * the context is saved .The tick count is incremented after the context
+	 * is saved.
 	 */
-	void TCC1_OVF_vect( void ) __attribute__ ( ( signal, naked ) );
-	void TCC1_OVF_vect( void )
+	ISR( TCC1_OVF_vect, ISR_NAKED )
 	{
-		vPortYieldFromTick();
+		portSAVE_CONTEXT();
+		if( xTaskIncrementTick() != pdFALSE )
+		{
+			vTaskSwitchContext();
+		}
+		portRESTORE_CONTEXT();
+
 		asm volatile ( "reti" );
 	}
 #else
@@ -462,8 +456,7 @@ static void prvSetupTimerInterrupt( void )
 	 * tick count.  We don't need to switch context, this can only be done by
 	 * manual calls to taskYIELD();
 	 */
-	void TCC1_OVF_vect( void ) __attribute__ ( ( signal ) );
-	void TCC1_OVF_vect( void )
+	ISR( TCC1_OVF_vect )
 	{
 		xTaskIncrementTick();
 	}
